@@ -1,0 +1,12 @@
+# Cloudflare Credentials & Secrets
+d1_config.json
+
+# Python bytecode & cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS artifacts
+Thumbs.db
+Desktop.ini
+.DS_Store
