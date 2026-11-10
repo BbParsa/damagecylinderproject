@@ -1172,7 +1172,25 @@
     });
 
     // Real-Time Server-Sent Events (SSE)
+    // Enhanced Real-time Sync supporting both Local Python Server & Cloudflare Pages (D1)
+    let lastMtime = null;
+    let lastRecordHash = null;
+
     function setupRealtimeSSE() {
+      // 1. Fetch fresh data immediately upon load
+      fetchFreshData(false);
+
+      const isCloud = window.location.hostname.includes('pages.dev') || window.location.hostname.includes('workers.dev');
+
+      if (isCloud) {
+        // Cloudflare Pages Mode: Poll /api/data every 8 seconds for automated live sync
+        setInterval(() => {
+          fetchFreshData(false);
+        }, 8000);
+        return;
+      }
+
+      // Local Python Server Mode: Use SSE if supported
       if (!window.EventSource) {
         startPolling();
         return;
@@ -1203,7 +1221,6 @@
 
         evtSource.onerror = () => {
           updateSyncBadge('offline');
-          // If SSE fails, fallback to polling
           startPolling();
         };
       } catch (err) {
@@ -1212,7 +1229,7 @@
       }
     }
 
-    // Polling fallback
+    // Polling fallback for local server
     let pollInterval = null;
     function startPolling() {
       if (pollInterval) return;
@@ -1227,7 +1244,8 @@
             }
           })
           .catch(() => {
-            updateSyncBadge('offline');
+            const isCloud = window.location.hostname.includes('pages.dev') || window.location.hostname.includes('workers.dev');
+            if (!isCloud) updateSyncBadge('offline');
           });
       }, 3500);
     }
@@ -1244,11 +1262,26 @@
         })
         .then(res => {
           if (res.records && Array.isArray(res.records)) {
+            const currentHash = `${res.records.length}-${res.records[0] ? res.records[0].id : 0}-${res.records[res.records.length - 1] ? res.records[res.records.length - 1].dealer_name : ''}`;
+            const hasChanged = lastRecordHash !== null && lastRecordHash !== currentHash;
+            lastRecordHash = currentHash;
+
             ALL_RECORDS = res.records;
             applyFilters();
-            updateSyncBadge('online', res.mtime_str);
+
+            const isCloud = (res.source && res.source.includes('D1')) || window.location.hostname.includes('pages.dev') || window.location.hostname.includes('workers.dev');
+            const nowTime = new Date().toLocaleTimeString('th-TH');
+
+            if (isCloud) {
+              updateSyncBadge('d1', `${res.records.length} รายการ (${nowTime})`);
+            } else {
+              updateSyncBadge('online', res.mtime_str || nowTime);
+            }
+
             if (isManual) {
-              showToast(`✅ รีเฟรชข้อมูลล่าสุดสำเร็จ (${res.records.length} รายการ)`, 'info');
+              showToast(`✅ ซิงค์ข้อมูลล่าสุดสำเร็จ (${res.records.length} รายการ)`, 'info');
+            } else if (hasChanged) {
+              showToast(`🔄 ตรวจพบข้อมูลอัปเดตใหม่! ปรับปรุงแดชบอร์ดเรียบร้อย (${res.records.length} รายการ)`, 'info');
             }
           }
         })
@@ -1256,7 +1289,7 @@
           console.warn('Could not fetch /api/data:', err);
           updateSyncBadge('offline');
           if (isManual) {
-            showToast('⚠️ ไม่สามารถเชื่อมต่อกับ Real-time Server ได้ (เปิดผ่าน start_dashboard.bat เพื่อเชื่อมต่อ)', 'warn');
+            showToast('⚠️ ไม่สามารถเชื่อมต่อกับ Data Server ได้', 'warn');
           }
         })
         .finally(() => {
@@ -1275,14 +1308,19 @@
 
       const nowStr = timeStr || new Date().toLocaleTimeString('th-TH');
 
-      if (status === 'online') {
+      if (status === 'd1') {
+        badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 font-heading transition-colors';
+        dot.className = 'w-1.5 h-1.5 mr-1.5 bg-emerald-500 rounded-full animate-ping';
+        text.textContent = 'Cloudflare D1 Database • ' + nowStr;
+      } else if (status === 'online') {
         badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 font-heading transition-colors';
         dot.className = 'w-1.5 h-1.5 mr-1.5 bg-emerald-500 rounded-full animate-ping';
         text.textContent = 'Excel เชื่อมต่อสด (Real-time) • ' + nowStr;
       } else if (status === 'offline') {
+        const isCloud = window.location.hostname.includes('pages.dev') || window.location.hostname.includes('workers.dev');
         badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 font-heading transition-colors';
         dot.className = 'w-1.5 h-1.5 mr-1.5 bg-amber-500 rounded-full';
-        text.textContent = 'รอเชื่อมต่อ Server (รัน start_dashboard.bat)';
+        text.textContent = isCloud ? 'รอข้อมูลจาก D1 (รัน start_d1_sync.bat ที่เครื่อง)' : 'รอเชื่อมต่อ Server (รัน start_dashboard.bat)';
       } else if (status === 'file') {
         badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-700 font-heading transition-colors';
         dot.className = 'w-1.5 h-1.5 mr-1.5 bg-slate-400 rounded-full';
